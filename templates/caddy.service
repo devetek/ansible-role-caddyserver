@@ -1,0 +1,83 @@
+{{ ansible_managed | comment(decoration="; ") }}
+; source: https://github.com/mholt/caddy/blob/master/dist/init/linux-systemd/caddy.service
+; version: 6be0386
+; changes: Set variables via Ansible
+
+[Unit]
+Description=dPanel Router - Caddy HTTP/2 web server ({{ router_version }}) by devetek.com
+Documentation=https://caddyserver.com/docs
+After=network-online.target
+{% if router_systemd_network_dependency == true %}
+Wants=network-online.target systemd-networkd-wait-online.service
+{% endif %}
+{% if router_systemd_version | int >= 230 %}
+StartLimitIntervalSec={{ router_systemd_restart_startlimitinterval }}
+StartLimitBurst={{ router_systemd_restart_startlimitburst }}
+{% endif %}
+
+[Service]
+Restart={{ router_systemd_restart }}
+RestartSec=10s
+{% if router_systemd_version | int < 230 %}
+StartLimitInterval={{ router_systemd_restart_startlimitinterval }}
+StartLimitBurst={{ router_systemd_restart_startlimitburst }}
+{% endif %}
+
+; User and group the process will run as.
+User=root
+Group=root
+
+; Letsencrypt-issued certificates will be written to this directory.
+Environment=CADDYPATH={{ router_certs_dir }}
+
+ExecStart="{{ router_bin_dir }}/caddy" run --environ --config "{{ router_conf_dir }}/{{ router_conf_filename }}" {{ router_additional_args }}
+ExecReload="{{ router_bin_dir }}/caddy" reload --config "{{ router_conf_dir }}/{{ router_conf_filename }}"
+
+; Limit the number of file descriptors; see `man systemd.exec` for more limit settings.
+LimitNOFILE=1048576
+{% if router_systemd_nproc_limit > 0 %}
+; Limit the number of caddy threads.
+LimitNPROC={{ router_systemd_nproc_limit }}
+{% endif %}
+
+; Use private /tmp and /var/tmp, which are discarded after caddy stops.
+PrivateTmp={{ router_systemd_private_tmp }}
+; Use a minimal /dev
+PrivateDevices={{ router_systemd_private_devices }}
+; Hide /home, /root, and /run/user. Nobody will steal your SSH-keys.
+ProtectHome={{ router_systemd_protect_home }}
+; Make /usr, /boot, /etc and possibly some more folders read-only.
+ProtectSystem={{ router_systemd_protect_system }}
+; ... except {{ router_certs_dir }}, because we want Letsencrypt-certificates there.
+;   This merely retains r/w access rights, it does not add any new. Must still be writable on the host!
+ReadWriteDirectories={{ router_certs_dir }} {{ router_log_dir }}
+
+{% if router_systemd_capabilities_enabled %}
+; The following additional security directives only work with systemd v229 or later.
+; They further retrict privileges that can be gained by caddy.
+; Note that you may have to add capabilities required by any plugins in use.
+CapabilityBoundingSet={{ router_systemd_capabilities }}
+AmbientCapabilities={{ router_systemd_capabilities }}
+NoNewPrivileges=true
+
+{% endif %}
+{% if router_environment_variables|length %}
+
+; Additional environment variables:
+
+{% for key, value in router_environment_variables.items() %}
+Environment={{ key }}={{ value }}
+{% endfor %}
+
+{% endif %}
+{% if router_environment_files|length %}
+
+; Additional environment files:
+
+{% for path in router_environment_files %}
+EnvironmentFile={{ path }}
+{% endfor %}
+
+{% endif %}
+[Install]
+WantedBy=multi-user.target

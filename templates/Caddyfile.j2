@@ -1,0 +1,25 @@
+# Main Controller
+# Refs:
+# https://caddyserver.com/docs/modules/tls
+# https://caddyserver.com/docs/modules/http
+
+# Non vHost snippets
+{
+	order cache before rewrite
+	cache
+
+	# set server to short term live connection
+	servers {
+		# enable_full_duplex
+		keepalive_interval 5s
+		timeouts {
+			read_body 10s
+			read_header 10s
+			write 60s
+			idle 5s
+		}
+	}
+}
+
+import snippets/*
+import vhosts/*

@@ -1,0 +1,7 @@
+---
+- name: Copy extra caddy snippets {{ item.name }}
+  ansible.builtin.copy:
+    content: "{{ lookup('template', 'templates/{{ item.source }}') }}"
+    dest: "{{ router_conf_dir }}/{{ item.destination }}"
+    owner: "{{ router_user }}"
+    mode: 0640

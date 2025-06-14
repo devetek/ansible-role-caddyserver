@@ -1,0 +1,17 @@
+http:// {
+    # header control
+    header -X-Powered-By
+    header Server "dPanel"
+    
+    handle {
+        respond "Forbidden" 403
+    }
+    
+    log {
+        output file /var/log/caddy/default.access.log {
+            roll_size 100mb
+            roll_keep 3
+            roll_keep_for 720h
+        }
+    }
+}

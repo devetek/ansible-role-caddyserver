@@ -1,0 +1,11 @@
+---
+- name: Restart router
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: "{{ router_service_name }}"
+    state: restarted
+
+- name: Reload router
+  ansible.builtin.systemd:
+    name: "{{ router_service_name }}"
+    state: reloaded

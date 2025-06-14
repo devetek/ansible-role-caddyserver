@@ -1,0 +1,74 @@
+# snippets/php-wordpress-next
+# {args[0]} represents the root url of the app. Example: "terpusat.com".
+# {args[1]} represents the upstream target. Example: "localhost:9000"
+# {args[2]} represents the root path to the app. Example: "/var/www/appname" (default to index.php in this directory)
+
+(php-wordpress-next) {
+    {args[0]} {
+        # header control
+        header -X-Powered-By
+        header Server "dPanel"
+
+        # Provide Zstd and Gzip compression
+        encode br zstd gzip
+        
+        handle /health_check {
+            respond "Ok!" 200
+        }
+
+        handle {
+            # WP Cache Condition
+            @cache {
+                not header_regexp Cookie "comment_author|wordpress_[a-f0-9]+|wp-postpass|wordpress_logged_in"
+                not path_regexp "(/wp-admin/|/xmlrpc.php|/wp-(app|cron|login|register|mail).php|wp-.*.php|/feed/|index.php|wp-comments-popup.php|wp-links-opml.php|wp-locations.php|sitemap(index)?.xml|[a-z0-9-]+-sitemap([0-9]+)?.xml)"
+                not method POST
+                not expression {query} != ''
+            }
+            
+            # getter all wp pluggin active (supercache / wp-rocket / fastets cache / w3 total cache)
+            handle @cache {
+                header X-dPanel-Cache "True"
+
+                try_files /wp-content/cache/supercache/{host}{uri}/index-https.html /wp-content/cache/supercache/{host}{uri}/index.html /wp-content/cache/wp-rocket/{host}{uri}/index-https.html /wp-content/cache/wp-rocket/{host}{uri}/index.html /wp-content/cache/all/{uri}/index.html /wp-content/cache/page_enhanced/{host}{uri}/_index_ssl.html /wp-content/cache/page_enhanced/{host}{uri}/_index_slash.html /wp-content/cache/page_enhanced/{host}{uri}/_index.html {path} {path}/index.php?{query}
+            }
+
+            # Resolve the root directory for the app
+            root * {args[2]}
+
+            # Upstream PHP-FPM
+            php_fastcgi {args[1]} {
+                header_down -X-Powered-By
+                header_down -Server
+            }
+
+            # Allow caddy to serve static files
+            file_server
+            
+            @disallowed {
+                path /xmlrpc.php
+                path *.sql
+                path /wp-content/uploads/*.php
+            }
+
+            rewrite @disallowed '/index.php'
+        }
+
+        handle_errors {
+            root * /var/www/public
+            @5xx file /error-{err.status_code}.html /error.html
+            
+            handle @5xx {
+                rewrite * {file_match.relative}
+                file_server
+            }
+        }
+
+        log {
+            output file /var/log/caddy/{args[0]}.access.log {
+                roll_size 100mb
+                roll_keep 3
+                roll_keep_for 720h
+            }
+        }
+    }
+}

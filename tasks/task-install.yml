@@ -1,0 +1,193 @@
+---
+# task for fresh install / re-install
+- name: Include tasks for pre-setup checks
+  ansible.builtin.include_tasks: preflight.yml
+
+- name: Include tasks to install packages
+  ansible.builtin.include_tasks: packages-{{ ansible_pkg_mgr }}.yml
+
+- name: Determine available users
+  getent:
+    database: passwd
+
+- name: Set fact when {{ router_user }} exists
+  set_fact:
+    user_exists: "exist"
+  when: router_user in item.key
+  loop: "{{ ansible_facts.getent_passwd | dict2items }}"
+
+- name: Set fact when {{ router_user }} does not exists
+  set_fact:
+    user_exists: "not_exist"
+  when: router_user not in item.key
+  loop: "{{ ansible_facts.getent_passwd | dict2items }}"
+
+- name: Value From User Check Is {{ user_exists }} !!!
+  debug:
+    msg: "{{ user_exists }}"
+
+- name: Create router user `{{ router_user }}`
+  ansible.builtin.user:
+    name: "{{ router_user }}"
+    groups: "{{ router_group }}"
+    system: true
+    createhome: true
+    home: "{{ router_home }}"
+  register: router_user_details
+  when: user_exists == "not_exist"
+
+- name: Build headers to use when making requests to github
+  ansible.builtin.set_fact:
+    router_github_headers: "{{ router_github_headers | combine({'Authorization': 'token ' + router_github_token}) }}"
+  when: router_github_token | length > 0
+
+# fetch release list from github
+- name: Get all router releases
+  ansible.builtin.get_url:
+    url: https://api.github.com/repos/devetek/d-panel-router/git/refs/tags
+    dest: "{{ router_home }}/releases.txt"
+    force: true
+    headers: "{{ router_github_headers }}"
+    owner: "{{ router_user }}"
+    group: "{{ router_group }}"
+    mode: 0640
+  retries: 3
+  delay: 2
+  register: router_releases_cache
+
+- name: Include tasks to build github URL, downloading from github
+  ansible.builtin.include_tasks: github-url.yml
+
+- name: Download router on cache update
+  ansible.builtin.get_url:
+    url: "{{ router_url }}"
+    # checksum: "{{ router_checksum_url | default(omit) }}"
+    dest: "{{ router_home }}/caddy.tar.gz"
+    force: true
+    timeout: "{{ router_download_timeout }}"
+    mode: 0644
+    owner: "{{ router_user }}"
+    group: "{{ router_group }}"
+  retries: 3
+  delay: 2
+  when: router_releases_cache.changed
+  register: router_binary_cache
+  tags: skip_ansible_lint
+
+- name: Download router
+  ansible.builtin.get_url:
+    url: "{{ router_url }}"
+    # checksum: "{{ router_checksum_url | default(omit) }}"
+    dest: "{{ router_home }}/caddy.tar.gz"
+    timeout: "{{ router_download_timeout }}"
+    mode: 0644
+    owner: "{{ router_user }}"
+    group: "{{ router_group }}"
+  retries: 3
+  delay: 2
+  register: router_download
+  tags: skip_ansible_lint
+
+- name: Include tasks to extract files after downloading from github
+  ansible.builtin.include_tasks: github-extract.yml
+
+- name: Copy router binary
+  ansible.builtin.copy:
+    src: "{{ router_home }}/caddy"
+    dest: "{{ router_bin }}"
+    mode: 0755
+    remote_src: true
+  notify:
+    - Restart router
+
+- name: Create directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ router_user }}"
+    mode: 0770
+  with_items:
+    - "{{ router_conf_dir }}"
+    - "{{ router_certs_dir }}"
+    - "{{ router_conf_snippets_dir }}"
+    - "{{ router_conf_vhosts_dir }}"
+    - "{{ router_html_dir }}"
+
+- name: Create log directory
+  ansible.builtin.file:
+    path: "{{ router_log_dir }}"
+    state: directory
+    owner: "{{ router_user }}"
+    mode: 0775
+
+- name: Get information about router config file
+  ansible.builtin.stat:
+    path: "{{ router_conf_dir }}/{{ router_conf_filename }}"
+  register: router_config_stat
+
+- name: Create router config
+  ansible.builtin.copy:
+    content: "{{ router_config }}"
+    dest: "{{ router_conf_dir }}/{{ router_conf_filename }}"
+    owner: "{{ router_user }}"
+    mode: 0640
+  notify:
+    - Reload router
+
+# TODO: remove in Dec 2024
+- name: Check if dcloud legacy exist, replace with dpanel-router
+  stat:
+    path: "{{ router_conf_dir }}/vhosts/dcloud-agent"
+  register: dcloud_legacy
+
+# remove legacy file dcloud
+- block:
+    - name: Remove legacy dcloud-agent gateway
+      file:
+        path: "{{ router_conf_dir }}/vhosts/dcloud-agent"
+        state: absent
+  when: dcloud_legacy.stat.exists == true
+# TODO: remove in Dec 2024
+
+- name: Include tasks to copy snippets templates
+  ansible.builtin.include_tasks: exta-config.yml
+  loop: "{{ router_config_extra }}"
+
+- name: Include tasks to copy error view templates
+  ansible.builtin.include_tasks: exta-error-view.yml
+  loop: "{{ router_default_view }}"
+
+# install dpanel router domain
+- name: Create new domain `{{ router_domain }}`
+  ansible.builtin.copy:
+    content: "{{ router_content }}"
+    dest: "{{ router_conf_dir }}/vhosts/{{ router_filename | default(router_domain) }}"
+    owner: "{{ router_user }}"
+    mode: 0640
+  when: router_domain != '' and router_content != ''
+
+- name: Template systemd service
+  ansible.builtin.template:
+    src: caddy.service
+    dest: "/lib/systemd/system/{{ router_service_name }}.service"
+    owner: root
+    group: root
+    mode: 0644
+  notify:
+    - Restart router
+
+- name: Set capability on the binary file to be able to bind to TCP port <1024
+  community.general.capabilities:
+    path: "{{ router_bin }}"
+    capability: cap_net_bind_service+eip
+    state: present
+  when: router_setcap
+
+- name: Ensure router service is up-to-date before starting it
+  ansible.builtin.meta: flush_handlers
+
+- name: Start router service
+  ansible.builtin.systemd:
+    name: "{{ router_service_name }}"
+    state: started
+    enabled: true

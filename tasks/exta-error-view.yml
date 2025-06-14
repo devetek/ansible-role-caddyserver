@@ -1,0 +1,7 @@
+---
+- name: Copy default view html
+  ansible.builtin.copy:
+    content: "{{ lookup('template', 'templates/{{ item.source }}') }}"
+    dest: "{{ router_html_dir }}/{{ item.destination }}"
+    owner: "{{ router_user }}"
+    mode: 0640

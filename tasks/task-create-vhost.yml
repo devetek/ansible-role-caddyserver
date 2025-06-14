@@ -1,0 +1,32 @@
+---
+- name: Create directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ router_user }}"
+    mode: 0770
+  with_items:
+    - "{{ router_conf_dir }}"
+    - "{{ router_certs_dir }}"
+    - "{{ router_conf_snippets_dir }}"
+    - "{{ router_conf_vhosts_dir }}"
+    - "{{ router_html_dir }}"
+
+# Always update new snippets from dpanel-router
+- name: Include tasks to copy snippets templates
+  ansible.builtin.include_tasks: exta-config.yml
+  loop: "{{ router_config_extra }}"
+
+- name: Include tasks to copy error view templates
+  ansible.builtin.include_tasks: exta-error-view.yml
+  loop: "{{ router_default_view }}"
+
+- name: Create new domain `{{ router_domain }}`
+  ansible.builtin.copy:
+    content: "{{ router_content }}"
+    dest: "{{ router_conf_dir }}/vhosts/{{ router_filename | default(router_domain) }}"
+    owner: "{{ router_user }}"
+    mode: 0640
+  when: router_domain != '' and router_content != ''
+  notify:
+    - Reload router

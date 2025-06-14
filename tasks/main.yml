@@ -1,0 +1,12 @@
+---
+- name: Install dpanel Router
+  ansible.builtin.include_tasks: task-install.yml
+  when: router_action == "install"
+
+- name: Create domain / HTTP routing
+  ansible.builtin.include_tasks: task-create-vhost.yml
+  when: router_action == "create-vhost"
+
+- name: Remove domain / HTTP routing
+  ansible.builtin.include_tasks: task-delete-vhost.yml
+  when: router_action == "delete-vhost"

@@ -1,0 +1,20 @@
+---
+- name: Get latest router release details
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/devetek/d-panel-router/releases/{{ router_git_version }}
+    return_content: true
+    headers: "{{ router_github_headers }}"
+  register: latest_router_release
+
+- name: Set router tag
+  ansible.builtin.set_fact:
+    router_tag: "{{ (latest_router_release.content | from_json).get('tag_name') }}"
+
+- name: Set router version
+  ansible.builtin.set_fact:
+    router_version: "{{ router_tag }}"
+
+- name: Set router urls
+  ansible.builtin.set_fact:
+    router_url: "https://github.com/devetek/d-panel-router/releases/download/\
+      {{ router_tag }}/dpanel-router-{{ router_version }}-{{ router_os }}-{{ go_arch }}.tar.gz"

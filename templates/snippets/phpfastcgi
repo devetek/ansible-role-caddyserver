@@ -1,0 +1,66 @@
+# snippets/phpfastcgi
+# {args[0]} represents the root url of the app. Example: "terpusat.com".
+# {args[1]} represents the upstream target. Example: "localhost:9000"
+# {args[2]} represents the root path to the app. Example: "/var/www/appname" (default to index.php in this directory)
+
+(phpfastcgi) {
+    {args[0]} {
+        # header control
+        header -X-Powered-By
+        header Server "dPanel"
+
+        @disallowed {
+            path *.htaccess
+            path /.git*
+            path /.devetek*
+            path /.env*
+            path *.gitignore
+            path *.sql
+            path *.php
+        }
+
+        handle @disallowed {
+            respond "Forbidden" 403
+        }
+        
+        handle /health_check {
+            respond "Ok!" 200
+        }
+
+        handle {
+            # Resolve the root directory for the app
+            root * {args[2]}
+            try_files {path} {path}/ /index.php?{query}
+
+            # Provide Br, Zstd and Gzip compression
+            encode br zstd gzip
+
+            # Upstream PHP-FPM
+            php_fastcgi {args[1]} {
+                header_down -X-Powered-By
+                header_down -Server
+            }
+
+            # Allow caddy to serve static files
+            file_server
+        }
+
+        handle_errors {
+            root * /var/www/public
+            @5xx file /error-{err.status_code}.html /error.html
+            
+            handle @5xx {
+                rewrite * {file_match.relative}
+                file_server
+            }
+        }
+
+        log {
+            output file /var/log/caddy/{args[0]}.access.log {
+                roll_size 100mb
+                roll_keep 3
+                roll_keep_for 720h
+            }
+        }
+    }
+}

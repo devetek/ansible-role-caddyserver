@@ -1,0 +1,21 @@
+---
+- name: Extract router
+  ansible.builtin.unarchive:
+    src: "{{ router_home }}/caddy.tar.gz"
+    dest: "{{ router_home }}"
+    copy: false
+    mode: 0644
+    owner: "{{ router_user }}"
+    group: "{{ router_user_details.group }}"
+  when: router_binary_cache.changed
+  tags: skip_ansible_lint
+
+- name: Extract Caddy
+  ansible.builtin.unarchive:
+    src: "{{ router_home }}/caddy.tar.gz"
+    dest: "{{ router_home }}"
+    creates: "{{ router_home }}/caddy"
+    copy: false
+    mode: 0644
+    owner: "{{ router_user }}"
+    group: "{{ router_user_details.group }}"

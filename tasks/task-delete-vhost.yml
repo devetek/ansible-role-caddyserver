@@ -1,0 +1,14 @@
+---
+- name: Check if domain `{{ router_domain }}` exist
+  stat:
+    path: "{{ router_conf_dir }}/vhosts/{{ router_filename | default(router_domain) }}"
+  register: domain
+
+- block:
+    - name: Remove domain `{{ router_domain }}`
+      file:
+        path: "{{ router_conf_dir }}/vhosts/{{ router_filename | default(router_domain) }}"
+        state: absent
+      notify:
+        - Reload router
+  when: domain.stat.exists == true
